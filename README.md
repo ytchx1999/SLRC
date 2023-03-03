@@ -70,9 +70,17 @@ Download [original data](https://drive.google.com/drive/folders/1ZDjnC2L0pWpdqd5
 
 # generate dataset
 > python Preprocess.py --dataset order
+#####
+python Preprocess.py --dataset beauty
+python Preprocess.py --dataset meituan_big
+python Preprocess.py --dataset gowalla
 
 # SLRC_BPR in Order dataset
-> python main.py --cf BPR --dataset order --gpu '' --K 100 --batch_size 256 --l2 1e-4 --lr 1e-4
+> python main.py --cf BPR --dataset order --gpu 0 --K 100 --batch_size 256 --l2 1e-4 --lr 1e-4
+#####
+python main.py --cf BPR --dataset beauty --gpu 0 --K 100 --batch_size 256 --l2 1e-4 --lr 1e-4
+python main.py --cf BPR --dataset meituan_big --gpu 0 --K 100 --batch_size 256 --l2 1e-4 --lr 1e-4
+python main.py --cf BPR --dataset gowalla --gpu 1 --K 100 --batch_size 256 --l2 1e-4 --lr 1e-4
 ```
 
 According to our experiences, SLRC_BPR generally works well and takes less time to train, which is the most robust. SLRC_NCF relies on fine-tuned parameters to get good results (sometimes still worse than SLRC_BPR). Therefore, we *recommend to use BPR as the Collaborative filtering (CF) method* to calculate base intensity.

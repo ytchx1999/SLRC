@@ -5,7 +5,8 @@ import sys
 import time
 import argparse
 import numpy as np
-from sklearn.externals import joblib
+# from sklearn.externals import joblib
+import joblib
 
 from src.models.SLRC_BPR import SLRCBPR
 from src.models.SLRC_Tensor import SLRCTensor
@@ -33,14 +34,14 @@ def parse_args():
                         help='Minimum transactions that users should have.')
     parser.add_argument('--item_min', type=int, default=5,
                         help='Minimum times that items should be bought.')
-    parser.add_argument('--topk', nargs='?', default='[5,10]',
+    parser.add_argument('--topk', nargs='?', default='[10,20]',
                         help='The number of items recommended to each user.')
     parser.add_argument('--batch_size', type=int, default=256,
                         help='Batch size.')
 
     parser.add_argument('--cf', nargs='?', default='BPR',
                         help='Choose a CF method to calculate base intensity: BPR, Tensor, NCF.')
-    parser.add_argument('--epoch', type=int, default=200,
+    parser.add_argument('--epoch', type=int, default=5,
                         help='Number of epochs.')
     parser.add_argument('--lr', type=float, default=1e-4,
                         help='Learning rate.')
@@ -106,18 +107,28 @@ def print_res(model, corpus, t1, restore=False):
               % (best_epoch + 1, model.valid_loss[best_epoch], model.test_loss[best_epoch]))
 
     # Evaluate
+    all_val_result = dict()
     all_test_result = dict()
+    sample_users = 5000
+    # if self.user_num > sample_users:
+    valid_indice = np.random.choice(len(corpus.data['dev']), replace=False, size=sample_users)
+    validation_data = np.array(corpus.data['dev'])[valid_indice]
+    test_indice = np.random.choice(len(corpus.data['test']), replace=False, size=sample_users)
+    test_data = np.array(corpus.data['test'])[test_indice]
     for topk in model.topk:
-        valid_result = model.evaluate(corpus.data['dev'], corpus.book, topk)
-        test_result = model.evaluate(corpus.data['test'], corpus.book, topk)
+        # valid_result = model.evaluate(corpus.data['dev'], corpus.book, topk)
+        # test_result = model.evaluate(corpus.data['test'], corpus.book, topk)
+        valid_result = model.evaluate(validation_data, corpus.book, topk)
+        test_result = model.evaluate(test_data, corpus.book, topk)
         print('\nTop@{}'.format(topk))
-        print('Validation: precision = {:<.4f}, recall = {:<.4f}, f1 = {:<.4f}, ndcg = {:<.4f}\n'
-              'Test:       precision = {:<.4f}, recall = {:<.4f}, f1 = {:<.4f}, ndcg = {:<.4f}\n[{:<.1f} s]'.format(
-               valid_result['precision'], valid_result['recall'], valid_result['f1'], valid_result['ndcg'],
-               test_result['precision'], test_result['recall'], test_result['f1'], test_result['ndcg'],
+        print('Validation: recall = {:<.4f}, ndcg = {:<.4f}, mrr = {:<.4f}\n'
+              'Test:       recall = {:<.4f}, ndcg = {:<.4f}, mrr = {:<.4f}\n[{:<.1f} s]'.format(
+               valid_result['recall'], valid_result['ndcg'], valid_result['mrr'],
+               test_result['recall'], test_result['ndcg'], test_result['mrr'],
                time.time() - t1))
         all_test_result[topk] = test_result
-    return all_test_result
+        all_val_result[topk] = valid_result
+    return all_test_result, all_val_result
 
 
 def main(args):
@@ -133,12 +144,16 @@ def main(args):
     print("\narguments:")
     print(args)
 
-    fold = 5
+    fold = 3
     topk = eval(args.topk)
+    total_val_result = dict()
     total_result = dict()
     for k in topk:
+        total_val_result[k] = {
+            'precision': [], 'recall': [], 'f1': [], 'ndcg': [], 'mrr': [],
+        }
         total_result[k] = {
-            'precision': [], 'recall': [], 'f1': [], 'ndcg': []
+            'precision': [], 'recall': [], 'f1': [], 'ndcg': [], 'mrr': [],
         }
     for f in range(fold):
         print('\nFold {}'.format(f))
@@ -152,19 +167,40 @@ def main(args):
             model.train(corpus)
         else:
             model.saver.restore(model.sess, model.model_path)
-        test_result = print_res(model, corpus, t1, restore=args.restore)
+        test_result, val_result = print_res(model, corpus, t1, restore=args.restore)
         for k in topk:
             total_result[k]['precision'].append(test_result[k]['precision'])
             total_result[k]['recall'].append(test_result[k]['recall'])
             total_result[k]['f1'].append(test_result[k]['f1'])
             total_result[k]['ndcg'].append(test_result[k]['ndcg'])
+            total_result[k]['mrr'].append(test_result[k]['mrr'])
+
+            total_val_result[k]['precision'].append(val_result[k]['precision'])
+            total_val_result[k]['recall'].append(val_result[k]['recall'])
+            total_val_result[k]['f1'].append(val_result[k]['f1'])
+            total_val_result[k]['ndcg'].append(val_result[k]['ndcg'])
+            total_val_result[k]['mrr'].append(val_result[k]['mrr'])
+
+    print('\nAverage in valid dataset:')
+    for k in topk:
+        print('Top@{:<2}:'.format(k), end=' ')
+        print('recall = {:<.4f}±{:<.4f}, ndcg = {:<.4f}±{:<.4f}, mrr = {:<.4f}±{:<.4f}'.format(
+            # np.mean(total_result[k]['precision']), np.std(total_result[k]['precision']),
+            np.mean(total_val_result[k]['recall']), np.std(total_val_result[k]['recall']),
+            # np.mean(total_result[k]['f1']), np.std(total_result[k]['f1']),
+            np.mean(total_val_result[k]['ndcg']), np.std(total_val_result[k]['ndcg']),
+            np.mean(total_val_result[k]['mrr']), np.std(total_val_result[k]['mrr']),
+        ))
 
     print('\nAverage in test dataset:')
     for k in topk:
         print('Top@{:<2}:'.format(k), end=' ')
-        print('precision = {:<.4f}, recall = {:<.4f}, f1 = {:<.4f}, ndcg = {:<.4f}'.format(
-            np.mean(total_result[k]['precision']), np.mean(total_result[k]['recall']),
-            np.mean(total_result[k]['f1']), np.mean(total_result[k]['ndcg'])
+        print('recall = {:<.4f}±{:<.4f}, ndcg = {:<.4f}±{:<.4f}, mrr = {:<.4f}±{:<.4f}'.format(
+            # np.mean(total_result[k]['precision']), np.std(total_result[k]['precision']),
+            np.mean(total_result[k]['recall']), np.std(total_result[k]['recall']),
+            # np.mean(total_result[k]['f1']), np.std(total_result[k]['f1']),
+            np.mean(total_result[k]['ndcg']), np.std(total_result[k]['ndcg']),
+            np.mean(total_result[k]['mrr']), np.std(total_result[k]['mrr']),
         ))
 
 

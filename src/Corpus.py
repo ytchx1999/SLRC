@@ -133,10 +133,12 @@ class Corpus:
             for i, line in enumerate(f):
                 if i < self.read_skip:
                     continue
-                [user_id, gt_click_orders, candidates] = line.split('\t')
+                # [user_id, gt_click_orders, candidates] = line.split('\t')
+                [user_id, gt_click_orders] = line.split('\t')
                 user_id = int(user_id)
                 gt_click_orders = list(map(int, gt_click_orders.strip()[1:-1].split(',')))
-                candidates = list(map(int, candidates.strip()[1:-1].split(',')))
+                # candidates = list(map(int, candidates.strip()[1:-1].split(',')))
+                candidates = list(np.arange(self.n_items))
 
                 self.data[data_type].append({
                     'user_id': user_id,

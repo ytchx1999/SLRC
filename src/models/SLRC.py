@@ -25,9 +25,10 @@ class SLRC:
         self.model_path = model_path
         self.random_seed = random_seed
         self.d_type = tf.float32
-        self.sample_candidate = sample_candidate if sample_candidate > 0 else self.item_num
+        # self.sample_candidate = sample_candidate if sample_candidate > 0 else self.item_num
 
         self.user_num, self.item_num, self.click_num = user_num, item_num, click_num
+        self.sample_candidate = sample_candidate if sample_candidate > 0 else self.item_num
         self.avg_interval = avg_repeat_interval / TIME_SCALAR
         self.time_span = time_span / TIME_SCALAR
 

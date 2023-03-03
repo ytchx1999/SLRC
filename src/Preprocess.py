@@ -5,8 +5,10 @@ import sys
 import time
 import argparse
 import numpy as np
+sys.path.append('../')
 
 from src.common.constants import *
+# os.system("export PYTHONPATH=../")
 
 
 class Click:
@@ -14,7 +16,7 @@ class Click:
         self.user_name = info[0].strip()
         self.item_name = info[1].strip()
         self.user_id, self.item_id = None, None
-        self.time = int(info[3])
+        self.time = int(float(info[3]))
         self.seq_order = None
 
 
@@ -31,6 +33,7 @@ class Preprocess:
         self.id2user = dict()
         self.id2item = dict()
 
+        self.ts_list = list()
         self.clicks_per_user = list()        # only item ids purchased by users
         self.pos_per_user = list()           # total clicks per user
         self.train_data = list()             # train data
@@ -43,9 +46,9 @@ class Preprocess:
         print('Loading data from \"{}\", dataset = \"{}\", userMin = {}, itemMin = {} '.format(
             self.path, self.dataset, user_min, item_min), end='')
         self._load_clicks(user_min, item_min)
-        if filt:
-            print('Filtering noise users')
-            self._filter()
+        # if filt:
+        #     print('Filtering noise users')
+        #     self._filter()
         self._assign_id()
         print('\"n_users\": {}, \"n_items\": {}, \"n_clicks\": {}'.format(self.n_users, self.n_items, self.n_clicks))
         # print('Filling repeat info', end=' ')
@@ -67,7 +70,7 @@ class Preprocess:
                 # print(line.replace("\n", ""))
                 info = line.replace("\n", "").split('\t')
                 try:
-                    user_name, item_name, score, t = info[0].strip(), info[1].strip(), info[2], int(info[3])
+                    user_name, item_name, score, t = info[0].strip(), info[1].strip(), info[2], int(float(info[3]))
                 except (ValueError, IndexError):
                     illegal_records += 1
                     continue
@@ -76,6 +79,7 @@ class Preprocess:
                 if item_name not in item_cnt:
                     item_cnt[item_name] = 0
                 user_cnt[user_name].add(t)
+                self.ts_list.append(t)
                 item_cnt[item_name] += 1
                 total_clicks += 1
         print("\nFirst pass: #users = {}, #items = {}, #clicks = {} (#illegal records = {})".format(
@@ -148,37 +152,72 @@ class Preprocess:
         self.n_items = len(items)
 
     def _gen_valid_test(self, sample_candidate):
+        if self.dataset == 'meituan':
+            val_time, test_time = list(np.quantile(np.array(self.ts_list), [0.5224476546015258, 0.7530271059892875]))  # meituan
+        elif self.dataset == 'meituan_big':
+            val_time, test_time = list(np.quantile(np.array(self.ts_list), [0.7137918444125029, 0.8570053042592756]))  # meituan
+        else:
+            val_time, test_time = list(np.quantile(np.array(self.ts_list), [0.80, 0.90]))
+
         for user_id, u in enumerate(self.pos_per_user):
             if user_id % 2000 == 0:
                 print('.', end='')
                 sys.stdout.flush()
+
             order_num = 1
             self.clicks_per_user.append(set())
             test_end, valid_end, valid_start = len(u), -1, -1
             cur_time = u[-1].time
             for idx, click in enumerate(u[::-1]):
                 i = len(u) - 1 - idx
-                if click.time != cur_time:
-                    cur_time = click.time
-                    order_num += 1
-                    if valid_end < 0:
-                        valid_end = i + 1
-                    elif valid_start < 0:
-                        valid_start = i + 1
+                if test_time < click.time:
+                    valid_end = i
+                    valid_start = i
+                elif val_time < click.time and click.time <= test_time:
+                    valid_start = i
+                # if click.time != cur_time:
+                #     cur_time = click.time
+                #     order_num += 1
+                #     if valid_end < 0:
+                #         valid_end = i + 1
+                #     elif valid_start < 0:
+                #         valid_start = i + 1
                 self.clicks_per_user[-1].add(click.item_id)
-            if order_num >= 3:
-                self.test_data.append(u[valid_end:])
-                self.validation_data.append(u[valid_start:valid_end])
-                self.train_data.append(u[:valid_start])
 
-                self.validation_candidate_data.append(
-                    self._gen_candidate_items(self.validation_data[-1], sample_candidate)
-                )
-                self.test_candidate_data.append(
-                    self._gen_candidate_items(self.test_data[-1], sample_candidate)
-                )
-            else:
+            if valid_end >= 0:
+                self.test_data.append(u[valid_end:])
+                # self.test_candidate_data.append(
+                #     self._gen_candidate_items(self.test_data[-1], sample_candidate)
+                # )
+            if valid_start >= 0:
+                if valid_end >= (valid_start + 1):
+                    self.validation_data.append(u[valid_start:valid_end])
+                    # self.validation_candidate_data.append(
+                    #     self._gen_candidate_items(self.validation_data[-1], sample_candidate)
+                    # )
+                elif valid_end == -1:
+                    self.validation_data.append(u[valid_start:])
+                    # self.validation_candidate_data.append(
+                    #     self._gen_candidate_items(self.validation_data[-1], sample_candidate)
+                    # )
+            if valid_start >= 1:
+                self.train_data.append(u[:valid_start])
+            elif valid_start == -1:
                 self.train_data.append(u)
+
+            # if order_num >= 3:
+            #     self.test_data.append(u[valid_end:])
+            #     self.validation_data.append(u[valid_start:valid_end])
+            #     self.train_data.append(u[:valid_start])
+
+            #     self.validation_candidate_data.append(
+            #         self._gen_candidate_items(self.validation_data[-1], sample_candidate)
+            #     )
+            #     self.test_candidate_data.append(
+            #         self._gen_candidate_items(self.test_data[-1], sample_candidate)
+            #     )
+            # else:
+            #     self.train_data.append(u)
         print()
 
     def _gen_candidate_items(self, gt_clicks, sample_candidate):
@@ -212,20 +251,37 @@ def save_split(corpus_path, dataset, corpus):
                 f.write(target_line)
     # Dev
     with open(corpus_path + '/data_{}/dev.csv'.format(dataset), 'w') as f:
-        f.write('user_id\tgt_order\tcandidate_item_id\n')
-        for dev_basket, candidates in zip(corpus.validation_data, corpus.validation_candidate_data):
+        f.write('user_id\tgt_order\n')
+        for dev_basket in corpus.validation_data:
             user_id = dev_basket[0].user_id
             gt_items = [click.seq_order for click in dev_basket]
-            target_line = '{}\t{}\t{}\n'.format(user_id, str(gt_items), str(candidates.tolist()))
+            target_line = '{}\t{}\n'.format(user_id, str(gt_items))
             f.write(target_line)
     # Test
     with open(corpus_path + '/data_{}/test.csv'.format(dataset), 'w') as f:
-        f.write('user_id\tgt_order\tcandidate_item_id\n')
-        for test_basket, candidates in zip(corpus.test_data, corpus.test_candidate_data):
+        f.write('user_id\tgt_order\n')
+        for test_basket in corpus.test_data:
             user_id = test_basket[0].user_id
             gt_items = [click.seq_order for click in test_basket]
-            target_line = '{}\t{}\t{}\n'.format(user_id, str(gt_items), str(candidates.tolist()))
+            target_line = '{}\t{}\n'.format(user_id, str(gt_items))
             f.write(target_line)
+
+    # # Dev
+    # with open(corpus_path + '/data_{}/dev.csv'.format(dataset), 'w') as f:
+    #     f.write('user_id\tgt_order\tcandidate_item_id\n')
+    #     for dev_basket, candidates in zip(corpus.validation_data, corpus.validation_candidate_data):
+    #         user_id = dev_basket[0].user_id
+    #         gt_items = [click.seq_order for click in dev_basket]
+    #         target_line = '{}\t{}\t{}\n'.format(user_id, str(gt_items), str(candidates.tolist()))
+    #         f.write(target_line)
+    # # Test
+    # with open(corpus_path + '/data_{}/test.csv'.format(dataset), 'w') as f:
+    #     f.write('user_id\tgt_order\tcandidate_item_id\n')
+    #     for test_basket, candidates in zip(corpus.test_data, corpus.test_candidate_data):
+    #         user_id = test_basket[0].user_id
+    #         gt_items = [click.seq_order for click in test_basket]
+    #         target_line = '{}\t{}\t{}\n'.format(user_id, str(gt_items), str(candidates.tolist()))
+    #         f.write(target_line)
 
 
 if __name__ == '__main__':
@@ -239,6 +295,6 @@ if __name__ == '__main__':
     corpus_path = '../data/'
     np.random.seed(2018)
     preprocessor = Preprocess(corpus_path, args.dataset)
-    preprocessor.load_data(5, 5, sample_candidate=NEG_SAMPLE[args.dataset], filt=True)
+    preprocessor.load_data(5, 5, sample_candidate=1000, filt=False)  # NEG_SAMPLE[args.dataset]
 
     save_split(corpus_path, args.dataset, preprocessor)
